@@ -81,8 +81,8 @@ Container Registry, built and smoke-tested from the immutable `v0.2.0`
 release tag.
 
 ```bash
-docker pull ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.0
-docker run --rm ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.0
+docker pull ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.1
+docker run --rm ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.1
 ```
 
 The image defaults to the synthetic mixed-data training demonstration.
@@ -111,6 +111,8 @@ For strictly chronological labels and irregular forward horizons,
 use `PurgedEventTimeSeriesSplit` rather than shuffling. See the
 [complete leakage-aware cross-validation guide](docs/cross-validation.md).
 The `frame` and `y` names above represent an existing frame and its labels.
+
+**Releases:** [v0.2.1](https://github.com/xxxxxwater/Machine_Learning_For_Structured_Data/releases/tag/v0.2.1) adds scikit-learn CV compatibility and event-label purging; [v0.2.0](https://github.com/xxxxxwater/Machine_Learning_For_Structured_Data/releases/tag/v0.2.0) remains unchanged.
 
 ## Time-series evaluation and gap
 
