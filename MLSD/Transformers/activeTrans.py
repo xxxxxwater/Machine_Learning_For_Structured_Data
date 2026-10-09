@@ -49,4 +49,5 @@ class activeTrans(BaseEstimator, TransformerMixin):
         if self.ifSData:
             check_is_fitted(self, "transformer_")
             return self.transformer_.get_feature_names_out(input_features)
-        raise AttributeError("Feature names are available from transform(X).columns")
+        check_is_fitted(self, "frame_")
+        return self.frame_.get_feature_names_out(input_features)
