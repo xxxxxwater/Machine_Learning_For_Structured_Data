@@ -1,0 +1,97 @@
+name: Publish MLSD v0.2.0
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/publish-v0.2.0.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mlsd-release-v0.2.0
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test suite
+        run: python -m pip install -e '.[dev]'
+      - name: Run regression tests
+        run: python -m pytest -q
+      - name: Run mixed-data smoke test
+        run: python examples/train_mixed.py
+
+  publish:
+    name: Build and publish Release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build --sdist --wheel
+      - name: Publish v0.2.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.2.0 >/dev/null 2>&1; then
+            echo "v0.2.0 already exists; will not overwrite its tag, notes or assets"
+          else
+            gh release create v0.2.0 dist/* \
+              --title "MLSD v0.2.0 — Modern Structured Machine Learning Toolkit" \
+              --notes-file docs/releases/v0.2.0.md \
+              --target "$GITHUB_SHA" \
+              --latest
+          fi
+          gh release view v0.2.0 --json url,tagName,isDraft,isPrerelease,assets \
+            --jq '"Release: " + .url + " | tag: " + .tagName + " | assets: " + ([.assets[].name] | join(", "))' \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  about:
+    name: Try to configure About metadata
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Update repository description, website and topics when permitted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          description="MLSD: scikit-learn-compatible feature extraction for time series, bags, text and images, with reproducible, leakage-aware evaluation."
+          homepage="https://github.com/xxxxxwater/Machine_Learning_For_Structured_Data#readme"
+          if gh api --method PATCH "/repos/$GITHUB_REPOSITORY" \
+             -f "description=$description" -f "homepage=$homepage" >/dev/null 2>&1; then
+            echo "About description and website updated." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Cannot edit About description/website with this workflow token; a repository administration write token is required."
+            echo "About description/website: update manually using docs/about.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if printf '%s\n' '{"names":["python","machine-learning","structured-data","time-series","feature-engineering","feature-extraction","scikit-learn","pandas","numpy","natural-language-processing","tfidf","functional-data-analysis","cross-validation","data-science","research","tabular-data"]}' \
+            | gh api --method PUT "/repos/$GITHUB_REPOSITORY/topics" --input - >/dev/null 2>&1; then
+            echo "About topics updated." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Cannot edit GitHub repository topics with this workflow token."
+            echo "About topics: update manually using docs/about.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
