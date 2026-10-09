@@ -24,7 +24,7 @@ def test_sklearn_cross_val_score_can_select_rows():
     frame = _frame()
     y = np.asarray([i % 2 for i in range(len(frame))])
     model = make_pipeline(activeTrans(), LogisticRegression(max_iter=200))
-    scores = cross_val_score(model, frame, y, cv=3, scoring="accuracy")
+    scores = cross_val_score(model, frame.as_sklearn(), y, cv=3, scoring="accuracy")
     assert scores.shape == (3,)
     assert np.all(np.isfinite(scores))
 
@@ -34,7 +34,7 @@ def test_sklearn_cross_val_score_with_ordered_gap_splits():
     y = np.asarray([i % 2 for i in range(len(frame))])
     model = make_pipeline(activeTrans(), LogisticRegression(max_iter=200))
     scores = cross_val_score(
-        model, frame, y,
+        model, frame.as_sklearn(), y,
         cv=PurgedWalkForwardSplit(n_splits=3, gap=2),
         scoring="accuracy")
     assert scores.shape == (3,)
@@ -91,3 +91,15 @@ def test_take_supports_column_subselection():
     selected = mixed.take([1], axis=1)
     assert selected.columns == ["other"]
     assert selected.iloc(0, 0).tolist() == [3, 4]
+
+
+def test_sklearn_view_has_no_fit_and_isolated_row_selection():
+    frame = _frame()
+    samples = frame.as_sklearn()
+    assert not hasattr(samples, "fit")
+    assert samples.shape == (len(frame), 1)
+    selected = samples.take([2, 4, 6])
+    assert selected.shape == (3, 1)
+    assert selected.frame.index.tolist() == frame.index[[2, 4, 6]].tolist()
+    selected.frame.data[0].values[0].iloc[0] = -77.0
+    assert frame.data[0].values[2].iloc[0] != -77.0
