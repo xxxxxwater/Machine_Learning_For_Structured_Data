@@ -1,235 +1,186 @@
+"""Containers for individual columns of structured observations."""
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from .Transformers import BasicSeries, BasicBag, BasicText, BasicImage
+
+from .Transformers import BasicBag, BasicImage, BasicSeries, BasicText
 
 
-class SData(object):
-    '''
-    SData is a feature container for Structed feature.
-    SData has four different dtype:
+class SData:
+    """A column of ragged Series, Bag, Image, Text, or scalar (NonS) values.
 
-    Series: Series data is a sequence plus time information,
-            sequence data can be classified in this type too.
+    Each observation occupies one slot, even when samples have different
+    lengths. The index must be unique so feature matrices can align safely.
+    """
 
-    Bag:    A set of features without particular order, we also
-            classify mesh data in this case, there will be a specific
-            transformers for the features extractions of mesh data.
+    _TYPES = ("Series", "Bag", "Image", "Text", "NonS")
 
-    Image:  A sex of Image with default transformers from sklearn.
-
-    Text:   A set of Text data with default transormers from sklearn.
-    '''
-
-    def __init__(self,
-                 x,
-                 index=None,
-                 column=None,
-                 dtype='Series',
-                 transformer=None):
-
-        # Store the Structed DATA and Check if the input x is right.
-        if type(x) == list:
-            self.values = np.asarray(x)
-        elif type(x) == np.ndarray:
-            self.values = x
-        else:
-            print('Error: Input for x shold be a list or numpy array')
-
-        # Store the dtype and Check if the dtype is right.
-        if dtype == 'Series':
-            for i in range(len(self.values)):
-                if type(self.values[i]) != pd.Series:
-                    self.values[i] = pd.Series(self.values[i])
-                else:
-                    pass
-            self.dtype = dtype
-            if transformer == None:
-                self.transformer = BasicSeries(Dreduction=None)
-
-        elif dtype == 'Bag':
-            for i in range(len(self.values)):
-                if type(self.values[i]) != pd.Series:
-                    self.values[i] = pd.Series(self.values[i])
-                else:
-                    pass
-            self.dtype = dtype
-            if transformer == None:
-                self.transformer = BasicBag()
-
-        elif dtype == 'Image':
-            self.dtype = dtype
-            if transformer == None:
-                self.transformer = BasicImage()
-
-        elif dtype == 'Text':
-            self.dtype = dtype
-            if transformer == None:
-                self.transformer = BasicText()
-
-        elif dtype == 'NonS':
-            self.dtype = dtype
-            self.transformer == None
-
-        else:
-            print('Error: dtype should be Series, Bag, Image or Text')
-
-        #Setting index.
-        if index == None:
-
-            self.index = range(len(self.values))
-
-        # Store the transformer object.
-        if transformer != None:
-
-            self.transformer = transformer
-
+    def __init__(self, x, index=None, column=None, dtype="Series", transformer=None):
+        if dtype not in self._TYPES:
+            raise ValueError(f"Unsupported dtype {dtype!r}; expected {self._TYPES}")
+        if not isinstance(x, (list, tuple, np.ndarray, pd.Series)):
+            raise TypeError("x must be a sequence of observations")
+        observations = list(x)
+        self.values = np.empty(len(observations), dtype=object)
+        for j, item in enumerate(observations):
+            if dtype in ("Series", "Bag"):
+                self.values[j] = item.copy() if isinstance(item, pd.Series) else pd.Series(item)
+            elif dtype == "Image":
+                self.values[j] = np.asarray(item)
+            else:
+                self.values[j] = item
+        self.index = pd.Index(range(len(self.values)) if index is None else index)
+        if len(self.index) != len(self.values):
+            raise ValueError("index length must match the number of observations")
+        if not self.index.is_unique:
+            raise ValueError("index labels must be unique")
         self.column = column
+        self.dtype = dtype
+        defaults = {"Series": BasicSeries, "Bag": BasicBag,
+                    "Image": BasicImage, "Text": BasicText}
+        self.transformer = transformer if transformer is not None else (
+            defaults[dtype]() if dtype in defaults else None)
 
     def __len__(self):
-
         return len(self.values)
 
-    def __getitem__(self, n):
+    def __iter__(self):
+        return iter(self.values)
 
-        return self.values[n]
+    def __getitem__(self, item):
+        return self.values[item]
 
     def __str__(self):
+        return "SData"
 
-        return 'SData'
-
-    def __call__(self):
-
-        pass
-
-    def plot(self):
-        for i in self:
-            plt.plot(i)
-
-        plt.show()
+    def __repr__(self):
+        return f"SData(dtype={self.dtype!r}, n_samples={len(self)}, column={self.column!r})"
 
     @property
     def p_dtype(self):
-
-        return type(self.values)
+        return self.values.dtype
 
     @property
     def size(self):
-        return [len(i) for i in self.values]
+        return [len(value) if hasattr(value, "__len__") else 1 for value in self.values]
 
-    def append(self, new_row):
+    def _require_numeric(self):
+        if self.dtype not in ("Series", "Bag"):
+            raise TypeError(f"{self.dtype} does not support numeric series operations")
 
-        self.values = np.row_stack((self.values, new_row))
-
-    def reindex(self):
-
-        self.index = range(len(self.values))
+    def _aggregate(self, func):
+        self._require_numeric()
+        return np.asarray([func(np.asarray(i, dtype=float)) for i in self.values])
 
     def min(self):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image or Text data cannot caculate the min')
-        else:
-            return np.asarray([np.min(i) for i in self.values])
+        return self._aggregate(np.min)
 
     def max(self):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image or Text data cannot caculate the max')
-        else:
-            return np.asarray([np.max(i) for i in self.values])
+        return self._aggregate(np.max)
 
     def std(self):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image or Text data cannot caculate the std')
-        else:
-            return np.asarray([np.std(i) for i in self.values])
+        return self._aggregate(np.std)
 
     def mean(self):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image or Text data cannot caculate the mean')
-        else:
-            return np.asarray([np.mean(i) for i in self.values])
+        return self._aggregate(np.mean)
 
-    def shift(self, n):
-        self.values = self.values[:-1]
-        self.index = self.index[1:]
+    def append(self, new_row, index=None):
+        """Append one observation; optionally supply its unique row label."""
+        label = len(self.values) if index is None else index
+        if label in self.index:
+            raise ValueError(f"Duplicate index label: {label!r}")
+        one = SData([new_row], index=[label], column=self.column,
+                    dtype=self.dtype, transformer=self.transformer)
+        self.values = np.concatenate([self.values, one.values])
+        self.index = self.index.append(one.index)
+        return self
 
-    def inner_shift(self, n):
-        if self.dtype in ['Image', 'Text', 'Bag']:
-            print(
-                'Error: Image,Text and bag data don not have inner_shift method'
-            )
-        else:
-            return np.asarray([i.shift(n) for i in self.values])
+    def reindex(self):
+        self.index = pd.RangeIndex(len(self.values))
+        return self
 
-    def fillna(self, x):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image,Text data don not have fillna method')
-        else:
-            for i in range(len(self.values)):
-                self.values[i] = self.values[i].fillna(x)
+    def shift(self, n=1):
+        """Lag observations n rows, discarding rows without aligned targets."""
+        if not isinstance(n, (int, np.integer)):
+            raise TypeError("n must be an integer")
+        if n > 0:
+            self.values, self.index = self.values[:-n], self.index[n:]
+        elif n < 0:
+            self.values, self.index = self.values[-n:], self.index[:n]
+        return self
 
-    def ffill(self, x):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image,Text data don not have ffill method')
-        else:
-            for i in range(len(self.values)):
-                self.values[i] = self.values[i].ffill
+    def inner_shift(self, n=1):
+        if self.dtype != "Series":
+            raise TypeError("inner_shift only supports Series")
+        shifted = np.empty(len(self), dtype=object)
+        for j, series in enumerate(self.values):
+            shifted[j] = series.shift(n)
+        return shifted
 
-    def bfill(self, x):
-        if self.dtype in ['Image', 'Text']:
-            print('Error: Image,Text data don not have bfill method')
-        else:
-            for i in range(len(self.values)):
-                self.values[i] = self.values[i].bfill
+    def fillna(self, value):
+        self._require_numeric()
+        for j, series in enumerate(self.values):
+            self.values[j] = series.fillna(value)
+        return self
 
-    def split_train_test(self,y,test_ratio=0.3):
+    def ffill(self, x=None):
+        self._require_numeric()
+        for j, series in enumerate(self.values):
+            self.values[j] = series.ffill(limit=x)
+        return self
 
-        length = len(self.values)
-        test_len = int(test_ratio * length)
-        train_len = length - test_len
-        index = np.asarray(range(length))
-        np.random.shuffle(index)
-        train_index = index[:train_len]
-        test_index = index[train_len:]
+    def bfill(self, x=None):
+        self._require_numeric()
+        for j, series in enumerate(self.values):
+            self.values[j] = series.bfill(limit=x)
+        return self
 
-        y_test = y[test_index]
-        y_train = y[train_index]
-
-        X_test = SData(
-            self.values[test_index],
-            dtype=self.dtype,
-            transformer=self.transformer)
-
-        X_train = SData(
-            self.values[train_index],
-            dtype=self.dtype,
-            transformer=self.transformer)
-
-        return X_train,y_train, X_test,y_test
+    def split_train_test(self, y, test_ratio=0.3, random_state=42, shuffle=True):
+        """Split without fitting a transformer on any held-out data."""
+        labels = np.asarray(y)
+        if len(labels) != len(self):
+            raise ValueError("y must have one label per observation")
+        if not 0 < test_ratio < 1 or len(self) < 2:
+            raise ValueError("test_ratio must be in (0, 1) and need >= 2 samples")
+        order = np.arange(len(self))
+        if shuffle:
+            order = np.random.default_rng(random_state).permutation(order)
+        test_count = max(1, min(len(self) - 1, int(np.ceil(test_ratio * len(self)))))
+        train_ids, test_ids = order[:-test_count], order[-test_count:]
+        def subset(ids):
+            return SData(self.values[ids], index=self.index.take(ids),
+                         column=self.column, dtype=self.dtype,
+                         transformer=deepcopy(self.transformer))
+        return subset(train_ids), labels[train_ids], subset(test_ids), labels[test_ids]
 
     @property
     def extracted_features(self):
-        transformer = self.transformer
-        return transformer.fit_transform(self)
+        """Convenience fitting on all rows; use fit/transform for held-out tests."""
+        if self.dtype == "NonS":
+            return pd.DataFrame({"value": self.values}, index=self.index)
+        return self.transformer.fit_transform(self)
 
-    def resample(cls, freq, func):
+    def resample(self, freq, func="mean"):
+        if self.dtype != "Series":
+            raise TypeError("Only Series data can be resampled")
+        for j, series in enumerate(self.values):
+            if not isinstance(series.index, pd.DatetimeIndex):
+                raise TypeError("resample requires a DatetimeIndex for each series")
+            self.values[j] = series.resample(freq).agg(func)
+        return self
 
-        if self.dtype == 'Series':
-            self.values = np.asarray(
-                [i.resample(freq).apply(func) for i in self.values])
-        else:
-            print('Only Series type can be resampled')
-
-    @classmethod
-    def C_resample(cls, freq, func):
-
-        if self.dtype == 'Series':
-            return cls([i.resample(freq).apply(func) for i in self.values],
-                       dtype='Series',
-                       transformer=self.transformer)
-        else:
-            print('Only Series type can be resampled')
+    def C_resample(self, freq, func="mean"):
+        clone = SData(self.values, index=self.index.copy(), column=self.column,
+                      dtype=self.dtype, transformer=deepcopy(self.transformer))
+        return clone.resample(freq, func)
 
     def apply(self, func):
+        return np.asarray([func(value) for value in self.values])
 
-        return np.asarray([func(i) for i in self.values])
+    def plot(self):
+        import matplotlib.pyplot as plt
+        self._require_numeric()
+        for series in self.values:
+            plt.plot(series)
+        plt.show()
