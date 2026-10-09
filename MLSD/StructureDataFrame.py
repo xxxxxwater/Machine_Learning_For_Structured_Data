@@ -10,6 +10,30 @@ from sklearn.exceptions import NotFittedError
 from .StructureData import SData
 
 
+class _FrameILoc:
+    """Position-based row/column selection; legacy iloc(row, col) is retained."""
+
+    def __init__(self, frame):
+        self.frame = frame
+
+    def __call__(self, row, col):
+        if not isinstance(row, Integral) or not isinstance(col, Integral):
+            raise TypeError("iloc(row, col) expects integer positions")
+        return self.frame.data[col][row]
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            if len(key) != 2:
+                raise IndexError("iloc expects at most two dimensions")
+            row, col = key
+            if isinstance(row, Integral) and isinstance(col, Integral):
+                return self(row, col)
+            return self.frame.take(col, axis=1).take(row, axis=0)
+        if isinstance(key, Integral):
+            return [item[key] for item in self.frame.data]
+        return self.frame.take(key, axis=0)
+
+
 class SDataFrame:
     """Combine typed SData columns into an aligned scikit-learn feature matrix."""
 
@@ -43,6 +67,45 @@ class SDataFrame:
     def __len__(self):
         return len(self.index)
 
+    @property
+    def shape(self):
+        return (len(self.index), len(self.data))
+
+    @property
+    def iloc(self):
+        return _FrameILoc(self)
+
+    def take(self, indices, axis=0):
+        """Return independent selected rows (axis=0) or columns (axis=1).
+
+        Compatible with scikit-learn's private row selection used in CV
+        while retaining nested structured observations and their dtypes.
+        """
+        if axis not in (0, 1):
+            raise ValueError("axis must be 0 or 1")
+        positions = np.arange(self.shape[axis])[indices]
+        positions = np.atleast_1d(positions)
+        if positions.dtype.kind not in ("i", "u"):
+            raise TypeError("take requires integer positions or a boolean mask")
+        if len(np.unique(positions)) != len(positions):
+            raise ValueError("Duplicate positions would create ambiguous labels")
+        if axis == 0:
+            new_index = self.index.take(positions)
+            new_data = []
+            for item in self.data:
+                # Rebuild typed objects to avoid train/test aliasing.
+                new_data.append(SData(
+                    deepcopy(item.values[positions]), index=new_index,
+                    column=item.column, dtype=item.dtype,
+                    transformer=deepcopy(item.transformer)))
+            return SDataFrame(new_data, columns=self.columns,
+                              index=new_index, transformers=deepcopy(self.transformers))
+        new_data = [deepcopy(self.data[i]) for i in positions]
+        return SDataFrame(
+            new_data, columns=[self.columns[i] for i in positions],
+            index=self.index.copy(),
+            transformers=[deepcopy(self.transformers[i]) for i in positions])
+
     def __str__(self):
         return f"SDataFrame(n_samples={len(self)}, columns={self.columns!r})"
 
@@ -57,11 +120,6 @@ class SDataFrame:
         if "columns" in self.__dict__ and name in self.columns:
             return self.data[self.columns.index(name)]
         raise AttributeError(name)
-
-    def iloc(self, row, col):
-        if not isinstance(row, Integral) or not isinstance(col, Integral):
-            raise TypeError("iloc(row, col) expects integer positions")
-        return self.data[col][row]
 
     def _stat(self, name):
         if any(item.dtype not in ("Series", "Bag") for item in self.data):
@@ -141,6 +199,8 @@ class SDataFrame:
         """Fit independent cloned transformers on this training frame only."""
         if X is not None and X is not self:
             raise ValueError("Call frame.fit(y=...) on the frame being fitted")
+        if isinstance(y, (pd.Series, pd.DataFrame)) and not y.index.equals(self.index):
+            raise ValueError("y index must align with the frame index in the same order")
         if y is not None and len(y) != len(self):
             raise ValueError("y length must equal the number of samples")
         fitted = []
@@ -155,6 +215,7 @@ class SDataFrame:
             estimator.fit(item, y)
             fitted.append(estimator)
         self.fitted_transformers_ = fitted
+        self.fitted_dtypes_ = tuple(item.dtype for item in self.data)
         return self
 
     def transform(self, X=None):
@@ -168,6 +229,8 @@ class SDataFrame:
             raise ValueError("Feature columns differ from those seen during fit")
         if len(frame.data) != len(self.fitted_transformers_):
             raise ValueError("Transformer count and column count differ")
+        if tuple(item.dtype for item in frame.data) != self.fitted_dtypes_:
+            raise ValueError("Column dtype schema differs from training data")
         parts = []
         for name, item, transformer in zip(
                 frame.columns, frame.data, self.fitted_transformers_):
@@ -183,6 +246,22 @@ class SDataFrame:
             part.columns = [f"{name}__{column}" for column in part.columns]
             parts.append(part)
         return pd.concat(parts, axis=1).reindex(frame.index)
+
+    def get_feature_names_out(self, input_features=None):
+        """Return trained, column-prefixed feature names without refitting."""
+        if not hasattr(self, "fitted_transformers_"):
+            raise NotFittedError("Call fit() before get_feature_names_out()")
+        names = []
+        for column, transformer in zip(self.columns, self.fitted_transformers_):
+            if transformer is None:
+                features = ["value"]
+            elif hasattr(transformer, "get_feature_names_out"):
+                features = transformer.get_feature_names_out()
+            else:
+                raise AttributeError(
+                    f"Transformer for {column!r} has no get_feature_names_out()")
+            names.extend(f"{column}__{name}" for name in features)
+        return np.asarray(names, dtype=object)
 
     def fit_transform(self, X=None, y=None):
         return self.fit(X=X, y=y).transform()
