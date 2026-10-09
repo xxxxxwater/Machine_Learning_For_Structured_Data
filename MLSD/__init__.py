@@ -1,7 +1,15 @@
-'''
-SDM is a package for using Series as features
-'''
+"""MLSD: machine learning feature extraction for structured data."""
+from .StructureData import SData
+from .StructureDataFrame import SDataFrame
+from .Transformers import (
+    BasicBag, BasicImage, BasicSeries, BasicText, BsplineSeries, FPCA,
+    localRSeries, tsfreshSeries,
+)
+from .Transformers.activeTrans import activeTrans
 
-from .StructureData import *
-from .StructureDataFrame import *
-from .Transformers import *
+__version__ = "0.2.0"
+__all__ = [
+    "SData", "SDataFrame", "BasicBag", "BasicImage", "BasicSeries",
+    "BasicText", "BsplineSeries", "FPCA", "localRSeries",
+    "tsfreshSeries", "activeTrans",
+]
