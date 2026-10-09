@@ -4,7 +4,7 @@ from copy import deepcopy
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.utils.validation import check_is_fitted
 
-from ..StructureDataFrame import SDataFrame
+from ..StructureDataFrame import FrameSamples, SDataFrame
 
 
 class activeTrans(BaseEstimator, TransformerMixin):
@@ -19,6 +19,8 @@ class activeTrans(BaseEstimator, TransformerMixin):
         self.Reset_default = Reset_default
 
     def fit(self, X, y=None):
+        if isinstance(X, FrameSamples):
+            X = X.frame
         if self.ifSData:
             source = (X.transformer if self.New_Trans is None else self.New_Trans)
             if source is None:
@@ -39,6 +41,8 @@ class activeTrans(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        if isinstance(X, FrameSamples):
+            X = X.frame
         if self.ifSData:
             check_is_fitted(self, "transformer_")
             return self.transformer_.transform(X)
