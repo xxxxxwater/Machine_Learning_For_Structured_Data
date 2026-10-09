@@ -1,6 +1,4 @@
 """Reproducible train/test selection for heterogeneous structured observations."""
-from copy import deepcopy
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import BaseCrossValidator
@@ -13,17 +11,7 @@ def take_rows(frame, positions):
     """Select rows by position while preserving row labels and feature schemas."""
     if not isinstance(frame, SDataFrame):
         raise TypeError("frame must be an SDataFrame")
-    ids = np.arange(len(frame))[positions]
-    ids = np.atleast_1d(ids)
-    if len(np.unique(ids)) != len(ids):
-        raise ValueError("Duplicate row positions would create ambiguous indexes")
-    data = [
-        SData(item.values[ids], index=item.index.take(ids),
-              dtype=item.dtype, column=item.column,
-              transformer=deepcopy(item.transformer))
-        for item in frame.data
-    ]
-    return SDataFrame(data, columns=frame.columns, transformers=deepcopy(frame.transformers))
+    return frame.take(positions, axis=0)
 
 
 def split_frame(frame, y, test_size=0.25, shuffle=True, random_state=42):
@@ -34,7 +22,7 @@ def split_frame(frame, y, test_size=0.25, shuffle=True, random_state=42):
     """
     if not isinstance(frame, SDataFrame):
         raise TypeError("frame must be an SDataFrame")
-    if isinstance(y, pd.Series) and not y.index.equals(frame.index):
+    if isinstance(y, (pd.Series, pd.DataFrame)) and not y.index.equals(frame.index):
         raise ValueError("y index must match the frame index in the same order")
     labels = np.asarray(y)
     count = len(frame)
@@ -100,3 +88,50 @@ class PurgedWalkForwardSplit(BaseCrossValidator):
             train_start = (max(0, train_stop - self.max_train_size)
                            if self.max_train_size is not None else 0)
             yield np.arange(train_start, train_stop), np.arange(test_start, test_stop)
+
+
+class PurgedEventTimeSeriesSplit(PurgedWalkForwardSplit):
+    """Walk-forward validation that purges *actual* overlapping label horizons.
+
+    Unlike a fixed row gap, the `label_end_times` Series provides a timestamp
+    for when every row's forward-looking target finishes. Training rows whose
+    target remains unresolved at the first validation sample are discarded.
+
+    This is an expanding/rolling **past-only** CV: it never trains on
+    observations after the validation start. An embargo on future training
+    observations is therefore unnecessary. Users must still ensure that
+    feature engineering itself does not look into the future.
+    """
+
+    def __init__(self, label_end_times, n_splits=3, gap=0, max_train_size=None):
+        super().__init__(
+            n_splits=n_splits, gap=gap, max_train_size=max_train_size)
+        self.label_end_times = label_end_times
+
+    def split(self, X, y=None, groups=None):
+        if not hasattr(X, "index") or not isinstance(X.index, pd.DatetimeIndex):
+            raise TypeError("X must have a DatetimeIndex for event-aware purging")
+        starts = X.index
+        if starts.hasnans or not starts.is_unique or not starts.is_monotonic_increasing:
+            raise ValueError("X index must contain unique chronological increasing timestamps")
+        ends = self.label_end_times
+        if not isinstance(ends, pd.Series):
+            raise TypeError("label_end_times must be a pandas Series indexed by X.index")
+        if not ends.index.equals(starts):
+            raise ValueError("label_end_times index must match X index and row order")
+        if not pd.api.types.is_datetime64_any_dtype(ends.dtype):
+            raise TypeError("label_end_times values must be datetime timestamps")
+        if ends.isna().any():
+            raise ValueError("label_end_times contains missing (NaT) end timestamps")
+        if ends.dt.tz != starts.tz:
+            raise ValueError("label_end_times timezone must match X.index timezone")
+        if bool((ends.array < starts.array).any()):
+            raise ValueError("A label end cannot be earlier than its observation start")
+
+        for train_idx, test_idx in super().split(X, y, groups):
+            first_test_time = starts[test_idx[0]]
+            eligible = (ends.iloc[train_idx] < first_test_time).to_numpy(dtype=bool)
+            purged_train = train_idx[eligible]
+            if not len(purged_train):
+                raise ValueError("Event-time purge left no training samples for a fold")
+            yield purged_train, test_idx
