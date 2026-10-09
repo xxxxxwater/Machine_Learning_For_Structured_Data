@@ -37,8 +37,8 @@ def main():
     # Estimation, imputation, and fitting happen exclusively on train rows.
     model = make_pipeline(SimpleImputer(strategy="median"),
                           LogisticRegression(max_iter=1000))
-    model.fit(train_features.sparse.to_dense(), y_train)
-    predictions = model.predict(test_features.sparse.to_dense())
+    model.fit(train_features.to_numpy(dtype=float), y_train)
+    predictions = model.predict(test_features.to_numpy(dtype=float))
     print(f"train={len(train)} test={len(test)}")
     print(f"held-out accuracy={accuracy_score(y_test, predictions):.3f}")
 
