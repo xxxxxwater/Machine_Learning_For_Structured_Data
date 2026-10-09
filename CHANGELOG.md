@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (development after v0.2.0)
+
+- Added explicit `SDataFrame.as_sklearn()` data-only views for scikit-learn
+  cross-validation, row/column selection, and stable feature names.
+- Added indexed-target alignment checks and per-column dtype validation to
+  prevent silent training/inference schema changes.
+- Introduced `PurgedEventTimeSeriesSplit` to exclude past samples whose
+  forward-looking labels overlap each validation fold.
+- Made per-observation resampling atomic on failures.
+- Added comprehensive CV, overlap, and copy-isolation regression tests.
+- Extended CI with optional B-spline/LOWESS tests and Ruff correctness lint.
+- Preserved the published v0.2.0 Release tag and GHCR image.
+
 ## 0.2.0 — 2026-10-09
 
 A focused modernization of the historical 2017 research prototype.
