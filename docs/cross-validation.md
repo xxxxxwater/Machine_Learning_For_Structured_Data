@@ -44,16 +44,18 @@ import pandas as pd
 from sklearn.model_selection import cross_val_score
 from MLSD.model_selection import PurgedEventTimeSeriesSplit
 
-# The frame index must be chronological and unique, with UTC or other
+# The frame index must be chronological and unique, with UTC or another
 # consistent datetime timezone; labels must use exactly the same index.
+from MLSD import SData, SDataFrame
+times = pd.date_range("2026-01-01", periods=30, freq="h", tz="UTC")
+frame = SDataFrame([SData(
+    [[i % 2, i % 2 + 1, i % 2 + 2] for i in range(30)],
+    index=times, column="signal")])
 start = frame.index
 ends = pd.Series(start + pd.Timedelta(hours=4), index=start)
 cv = PurgedEventTimeSeriesSplit(ends, n_splits=3, gap=1)
 scores = cross_val_score(estimator, frame.as_sklearn(), y, cv=cv)
 ```
-
-For this example, make sure `frame.index` is a pandas `DatetimeIndex`;
-the earlier toy frame's default `RangeIndex` is intentionally unsuitable.
 
 ### Precise overlap convention
 
