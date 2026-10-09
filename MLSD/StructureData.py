@@ -138,8 +138,10 @@ class SData:
 
     def split_train_test(self, y, test_ratio=0.3, random_state=42, shuffle=True):
         """Split without fitting a transformer on any held-out data."""
+        if isinstance(y, (pd.Series, pd.DataFrame)) and not y.index.equals(self.index):
+            raise ValueError("y index must match the SData index in the same order")
         labels = np.asarray(y)
-        if len(labels) != len(self):
+        if labels.ndim == 0 or len(labels) != len(self):
             raise ValueError("y must have one label per observation")
         if not 0 < test_ratio < 1 or len(self) < 2:
             raise ValueError("test_ratio must be in (0, 1) and need >= 2 samples")
@@ -164,10 +166,15 @@ class SData:
     def resample(self, freq, func="mean"):
         if self.dtype != "Series":
             raise TypeError("Only Series data can be resampled")
-        for j, series in enumerate(self.values):
+        result = []
+        for series in self.values:
             if not isinstance(series.index, pd.DatetimeIndex):
                 raise TypeError("resample requires a DatetimeIndex for each series")
-            self.values[j] = series.resample(freq).agg(func)
+            result.append(series.resample(freq).agg(func))
+        # Resampling is atomic: one invalid observation must not leave half
+        # of the container transformed.
+        for j, new_series in enumerate(result):
+            self.values[j] = new_series
         return self
 
     def C_resample(self, freq, func="mean"):
