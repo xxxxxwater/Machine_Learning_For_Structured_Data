@@ -5,7 +5,7 @@ from numbers import Integral
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError
 
 from .StructureData import SData
 
@@ -159,7 +159,8 @@ class SDataFrame:
 
     def transform(self, X=None):
         """Transform a frame using training-only fitted estimators."""
-        check_is_fitted(self, "fitted_transformers_")
+        if not hasattr(self, "fitted_transformers_"):
+            raise NotFittedError("Call fit() before transform()")
         frame = self if X is None else X
         if not isinstance(frame, SDataFrame):
             raise TypeError("transform expects an SDataFrame")
