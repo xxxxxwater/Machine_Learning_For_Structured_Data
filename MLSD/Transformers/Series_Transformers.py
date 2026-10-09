@@ -1,408 +1,242 @@
+"""Time-series feature transformers.
+
+Only NumPy, pandas, SciPy and scikit-learn are required for the baseline
+transformers. Optional backends are imported when they are used.
+"""
 import numpy as np
 import pandas as pd
-import patsy as ps
-from scipy.stats import skew, kurtosis
-from sklearn.base import TransformerMixin
-from sklearn.linear_model import LinearRegression
-from tsfresh import extract_features, extract_relevant_features
-from fdasrsf.fPCA import vertfPCA
-from .pyFDA import bspline
-from .pyFDA.register import localRegression
-from .pyFDA.lowess import lowess
+from scipy.stats import kurtosis, skew
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.decomposition import PCA
 
 
-class BasicSeries(TransformerMixin):
+STAT_NAMES = ("min", "max", "mean", "std", "skew", "kurtosis", "median")
+
+
+def _stats(values):
+    """Seven scalar statistics; missing observations are ignored."""
+    a = np.asarray(values, dtype=float).ravel()
+    a = a[np.isfinite(a)]
+    if not a.size:
+        return [np.nan] * len(STAT_NAMES)
+    spread = float(np.std(a))
+    return [
+        float(np.min(a)), float(np.max(a)), float(np.mean(a)), spread,
+        float(skew(a)) if a.size >= 3 and spread > 0 else 0.0,
+        float(kurtosis(a)) if a.size >= 4 and spread > 0 else 0.0,
+        float(np.median(a)),
+    ]
+
+
+def _as_rows(X):
+    if hasattr(X, "values") and hasattr(X, "index"):
+        return list(X.values), pd.Index(X.index)
+    rows = list(X)
+    return rows, pd.RangeIndex(len(rows))
+
+
+class BasicSeries(BaseEstimator, TransformerMixin):
+    """21 stable statistics from each series and its first two differences."""
+
     def __init__(self, Dreduction=None):
-
         self.Dreduction = Dreduction
 
-    def fit(self, X, y=None, *args, **kwargs):
-        def first_order_d(X):
-            X = np.asarray(X)
-            return X[1:] - X[:-1]
-
-        def second_order_d(X):
-            X = np.asarray(X)
-            first_order = first_order_d(X)
-            return first_order[1:] - first_order[:-1]
-
-        def fo_mean(X):
-            return np.mean(first_order_d(X))
-
-        def fo_std(X):
-            return np.std(first_order_d(X))
-
-        def fo_min(X):
-            return np.min(first_order_d(X))
-
-        def fo_max(X):
-            return np.max(first_order_d(X))
-
-        def fo_median(X):
-            return np.median(first_order_d(X))
-
-        def fo_skew(X):
-            return skew(first_order_d(X))
-
-        def fo_kurt(X):
-            return kurtosis(first_order_d(X))
-
-        def so_mean(X):
-            return np.mean(second_order_d(X))
-
-        def so_std(X):
-            return np.std(second_order_d(X))
-
-        def so_min(X):
-            return np.min(second_order_d(X))
-
-        def so_max(X):
-            return np.max(second_order_d(X))
-
-        def so_median(X):
-            return np.median(second_order_d(X))
-
-        def so_skew(X):
-            return skew(second_order_d(X))
-
-        def so_kurt(X):
-            return kurtosis(second_order_d(X))
-
-        self.features = pd.DataFrame(
-            np.asarray([
-                X.min(), X.max(), X.mean(), X.std(), X.apply(skew), X.apply(
-                    kurtosis), X.apply(np.median), X.apply(fo_mean), X.apply(
-                        fo_std), X.apply(fo_min), X.apply(fo_median),
-                X.apply(fo_max), X.apply(fo_skew), X.apply(fo_kurt), X.apply(
-                    so_mean), X.apply(so_std), X.apply(so_min), X.apply(
-                        so_median), X.apply(so_max), X.apply(so_skew), X.apply(
-                            so_kurt)
-            ]).T).dropna(1)
-
-    def transform(self, X, y=None, *args, **kwargs):
-        def first_order_d(X):
-            X = np.asarray(X)
-            return X[1:] - X[:-1]
-
-        def second_order_d(X):
-            X = np.asarray(X)
-            first_order = first_order_d(X)
-            return first_order[1:] - first_order[:-1]
-
-        def fo_mean(X):
-            return np.mean(first_order_d(X))
-
-        def fo_std(X):
-            return np.std(first_order_d(X))
-
-        def fo_min(X):
-            return np.min(first_order_d(X))
-
-        def fo_max(X):
-            return np.max(first_order_d(X))
-
-        def fo_median(X):
-            return np.median(first_order_d(X))
-
-        def fo_skew(X):
-            return skew(first_order_d(X))
-
-        def fo_kurt(X):
-            return kurtosis(first_order_d(X))
-
-        def so_mean(X):
-            return np.mean(second_order_d(X))
-
-        def so_std(X):
-            return np.std(second_order_d(X))
-
-        def so_min(X):
-            return np.min(second_order_d(X))
-
-        def so_max(X):
-            return np.max(second_order_d(X))
-
-        def so_median(X):
-            return np.median(second_order_d(X))
-
-        def so_skew(X):
-            return skew(second_order_d(X))
-
-        def so_kurt(X):
-            return kurtosis(second_order_d(X))
-
-        features = pd.DataFrame(
-            np.asarray([
-                X.min(), X.max(), X.mean(), X.std(), X.apply(skew), X.apply(
-                    kurtosis), X.apply(np.median), X.apply(fo_mean), X.apply(
-                        fo_std), X.apply(fo_min), X.apply(fo_median),
-                X.apply(fo_max), X.apply(fo_skew), X.apply(fo_kurt), X.apply(
-                    so_mean), X.apply(so_std), X.apply(so_min), X.apply(
-                        so_median), X.apply(so_max), X.apply(so_skew), X.apply(
-                            so_kurt)
-            ]).T).dropna(1)
-        return features
-
-    def fit_transform(self, X, y=None, *args, **kwargs):
-        def first_order_d(X):
-            X = np.asarray(X)
-            return X[1:] - X[:-1]
-
-        def second_order_d(X):
-            X = np.asarray(X)
-            first_order = first_order_d(X)
-            return first_order[1:] - first_order[:-1]
-
-        def fo_mean(X):
-            return np.mean(first_order_d(X))
-
-        def fo_std(X):
-            return np.std(first_order_d(X))
-
-        def fo_min(X):
-            return np.min(first_order_d(X))
-
-        def fo_max(X):
-            return np.max(first_order_d(X))
-
-        def fo_median(X):
-            return np.median(first_order_d(X))
-
-        def fo_skew(X):
-            return skew(first_order_d(X))
-
-        def fo_kurt(X):
-            return kurtosis(first_order_d(X))
-
-        def so_mean(X):
-            return np.mean(second_order_d(X))
-
-        def so_std(X):
-            return np.std(second_order_d(X))
-
-        def so_min(X):
-            return np.min(second_order_d(X))
-
-        def so_max(X):
-            return np.max(second_order_d(X))
-
-        def so_median(X):
-            return np.median(second_order_d(X))
-
-        def so_skew(X):
-            return skew(second_order_d(X))
-
-        def so_kurt(X):
-            return kurtosis(second_order_d(X))
-
-        self.features = pd.DataFrame(
-            np.asarray([
-                X.min(), X.max(), X.mean(), X.std(), X.apply(skew), X.apply(
-                    kurtosis), X.apply(np.median), X.apply(fo_mean), X.apply(
-                        fo_std), X.apply(fo_min), X.apply(fo_median),
-                X.apply(fo_max), X.apply(fo_skew), X.apply(fo_kurt), X.apply(
-                    so_mean), X.apply(so_std), X.apply(so_min), X.apply(
-                        so_median), X.apply(so_max), X.apply(so_skew), X.apply(
-                            so_kurt)
-            ]).T).dropna(1)
-        return self.features
-
-
-class tsfreshSeries(TransformerMixin):
-    def __init__(self, *args, **kwargs):
-
-        print('Using tsfresh as backend')
-
-    def fit(self, X, y=None, *args, **kwargs):
-
-        if y == None:
-            self.model = extract_features
-        else:
-            self.model = extract_relevant_features
-
-    def transform(self, X, y=None, *args, **kwargs):
-
-        data = X
-        X = data[0]
-        time = data[0].index.values
-        column_id = np.repeat(0, len(X.values))
-
-        for i in range(1, len(data)):
-            column_id = np.concatenate(
-                [column_id, np.repeat(i, len(data[i].values))])
-            time = np.concatenate([time, data[i].index.values])
-            X = pd.concat([X, data[i]])
-
-        dataset = pd.DataFrame(np.asarray([column_id, time, X.values]).T)
-        dataset.columns = ['id', 'time', 'X']
-
-        features = self.model(dataset, column_id='id', column_sort='time')
-
-        return features.dropna(1)
-
-    def fit_transform(self, X, y=None, *args, **kwargs):
-
-        if y == None:
-            self.model = extract_features
-        else:
-            self.model = extract_relevant_features
-
-        data = X
-        X = data[0]
-        time = data[0].index.values
-        column_id = np.repeat(0, len(X.values))
-
-        for i in range(1, len(data)):
-            column_id = np.concatenate(
-                [column_id, np.repeat(i, len(data[i].values))])
-            time = np.concatenate([time, data[i].index.values])
-            X = pd.concat([X, data[i]])
-
-        dataset = pd.DataFrame(np.asarray([column_id, time, X.values]).T)
-        dataset.columns = ['id', 'time', 'X']
-
-        features = features = self.model(
-            dataset, column_id='id', column_sort='time')
-
-        return features.dropna(1)
-
-
-class BsplineSeries(TransformerMixin):
-    def __init__(self, degrees, knots):
+    def fit(self, X, y=None):
+        if self.Dreduction is not None:
+            raise ValueError("BasicSeries does not support Dreduction; use a pipeline")
+        self.feature_names_out_ = np.asarray(
+            [f"{prefix}_{name}" for prefix in ("value", "diff1", "diff2")
+             for name in STAT_NAMES], dtype=object)
+        return self
+
+    def transform(self, X):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        rows, index = _as_rows(X)
+        features = []
+        for row in rows:
+            a = np.asarray(row, dtype=float).ravel()
+            features.append(_stats(a) + _stats(np.diff(a)) + _stats(np.diff(a, n=2)))
+        return pd.DataFrame(features, index=index, columns=self.feature_names_out_)
+
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_.copy()
+
+
+class tsfreshSeries(BaseEstimator, TransformerMixin):
+    """Optional tsfresh backend; freeze selected features on training data."""
+
+    def __init__(self, default_fc_parameters=None, n_jobs=0):
+        self.default_fc_parameters = default_fc_parameters
+        self.n_jobs = n_jobs
+
+    @staticmethod
+    def _long(X):
+        rows, index = _as_rows(X)
+        records = []
+        for sample_id, row in enumerate(rows):
+            series = pd.Series(row)
+            for position, value in enumerate(series.to_numpy()):
+                records.append((sample_id, position, value))
+        if not records:
+            raise ValueError("tsfresh requires at least one nonempty series")
+        return pd.DataFrame(records, columns=["id", "time", "value"]), index
+
+    def _extract(self, X):
+        try:
+            from tsfresh import extract_features
+        except ImportError as exc:
+            raise ImportError("Install MLSD[tsfresh] to use tsfreshSeries") from exc
+        long, index = self._long(X)
+        result = extract_features(
+            long, column_id="id", column_sort="time",
+            default_fc_parameters=self.default_fc_parameters,
+            n_jobs=self.n_jobs, disable_progressbar=True)
+        return result.reindex(range(len(index))).set_axis(index)
+
+    def fit(self, X, y=None):
+        features = self._extract(X).replace([np.inf, -np.inf], np.nan)
+        if y is not None:
+            try:
+                from tsfresh import select_features
+            except ImportError as exc:
+                raise ImportError("Install MLSD[tsfresh] to select features") from exc
+            target = pd.Series(np.asarray(y), index=features.index)
+            features = select_features(features.fillna(0), target)
+        self.feature_names_out_ = np.asarray(features.columns, dtype=object)
+        return self
+
+    def transform(self, X):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self._extract(X).reindex(columns=self.feature_names_out_)
+
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_.copy()
+
+
+class BsplineSeries(BaseEstimator, TransformerMixin):
+    """Per-series B-spline coefficients using a fixed basis size."""
+
+    def __init__(self, degrees=3, knots=6):
         self.degrees = degrees
         self.knots = knots
 
-    def fit(self, X, y=None, *args, **kwargs):
+    def fit(self, X, y=None):
+        if self.degrees < 0 or self.knots < self.degrees + 1:
+            raise ValueError("knots must be at least degrees + 1")
+        self.feature_names_out_ = np.array(
+            [f"bspline_{i}" for i in range(self.knots)], dtype=object)
+        return self
 
-        self.model_list = []
-        for i in X:
-            smoothed_array = ps.builtins.bs(
-                i.values, degrees=self.degrees, df=self.knots)
-            model = LinearRegression()
-            model.fit(smoothed_array, i.values)
-            self.model_list.append(model)
+    def transform(self, X):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        try:
+            from patsy import dmatrix
+        except ImportError as exc:
+            raise ImportError("Install MLSD[spline] to use BsplineSeries") from exc
+        rows, index = _as_rows(X)
+        result = []
+        for row in rows:
+            a = np.asarray(row, dtype=float).ravel()
+            if a.size < self.knots or not np.isfinite(a).all():
+                raise ValueError("B-spline series must be finite and at least knots long")
+            t = np.linspace(0, 1, a.size)
+            basis = np.asarray(dmatrix(
+                "bs(t, df=df, degree=degree, include_intercept=False) - 1",
+                {"t": t, "df": self.knots, "degree": self.degrees}))
+            result.append(np.linalg.lstsq(basis, a, rcond=None)[0])
+        return pd.DataFrame(result, index=index, columns=self.feature_names_out_)
 
-    def transform(self, X,y= None, *args, **kwargs):
-
-        param_matrix = []
-        for i in self.model_list:
-            params = i.coef_
-            param_matrix.append(params)
-
-        return pa.DataFrame(np.asarray(param_matrix).T)
-
-    def fit_transform(self, X, y= None, *args, **kwargs):
-
-        self.model_list = []
-        for i in X:
-            smoothed_array = ps.builtins.bs(
-                i.values, degrees=self.degrees, df=self.knots)
-            model = LinearRegression()
-            model.fit(smoothed_array, i.values)
-            self.model_list.append(model)
-
-        param_matrix = []
-
-        for i in self.model_list:
-            params = i.coef_
-            param_matrix.append(params)
-
-        return pa.DataFrame(np.asarray(param_matrix).T)
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_.copy()
 
 
-class localRSeries(TransformerMixin):
-    def __init__(self, fraction):
-        self.fraction = franction
+class localRSeries(BaseEstimator, TransformerMixin):
+    """LOWESS summaries (requires the optional statsmodels dependency)."""
 
-    def fit(self, X, y=None, *args, **kwargs):
+    def __init__(self, fraction=0.3):
+        self.fraction = fraction
 
-        self.curves = []
-        for i in X:
-            x = np.asarray(range(len(i)))
-            smoothed = lowess(x=x, y = i.values,f= self.fraction)
-            self.curves.append(smoothed)
+    def fit(self, X, y=None):
+        if not 0 < self.fraction <= 1:
+            raise ValueError("fraction must lie in (0, 1]")
+        self.feature_names_out_ = np.asarray(
+            ["smooth_" + name for name in STAT_NAMES], dtype=object)
+        return self
 
-    def transform(self, X,y=None, *args, **kwargs):
-
-        def extract_inform(x):
-            inf = [np.min(x),
-             np.max(x),
-             skew(x),
-             kurtosis(x)]
-             return inf
-
-        param_matrix = []
-        for i in self.smoothed:
-            param_matrix.append(extract_inform(i))
-
-        return pa.DataFrame(np.asarray(param_matrix).T)
-
-    def fit_transform(self, X,y=None, *args, **kwargs):
-
-        self.curves = []
-        for i in X:
-            x = np.asarray(range(len(i)))
-            smoothed = lowess(x=x, y = i.values,f= self.fraction)
-            self.curves.append(smoothed)
-
-        def extract_inform(x):
-            inf = [np.min(x),
-             np.max(x),
-             skew(x),
-             kurtosis(x)]
-             return inf
-
-        param_matrix = []
-        for i in self.smoothed:
-            param_matrix.append(extract_inform(i))
-
-        return pa.DataFrame(np.asarray(param_matrix).T)
-
-class FPCA(TransformerMixin):
-
-    def __init__(self):
-
-
-    def fit(self, X,y=None, *args, **kwargs):
-
-        def smooth(X):
-            SMOOTH = []
-            for i in X:
-                x = np.asarray(range(len(i)))
-                smoothed = lowess(x=x, y = i.values,f= self.fraction)
-                SMOOTH.append(smoothed)
-            return SMOOTH
-
-        multi_curve = []
-        for i in X:
-            if i.dtype == 'Series':
-                multi_curve.append(smooth(i))
+    def transform(self, X):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        try:
+            from statsmodels.nonparametric.smoothers_lowess import lowess
+        except ImportError as exc:
+            raise ImportError("Install MLSD[lowess] to use localRSeries") from exc
+        rows, index = _as_rows(X)
+        result = []
+        for row in rows:
+            a = np.asarray(row, dtype=float).ravel()
+            valid = np.isfinite(a)
+            if valid.sum() < 2:
+                result.append([np.nan] * len(STAT_NAMES))
             else:
-                pass
-        self._FPCA = vertfPCA(np.asarray(multi_curve),*args,*kwargs)
+                curve = lowess(a[valid], np.flatnonzero(valid), frac=self.fraction,
+                               return_sorted=False)
+                result.append(_stats(curve))
+        return pd.DataFrame(result, index=index, columns=self.feature_names_out_)
+
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_.copy()
 
 
+class FPCA(BaseEstimator, TransformerMixin):
+    """Approximate functional PCA by interpolation onto a common time grid.
 
-    def transform(self, X,y=None, *args, **kwargs):
+    Fit only on training samples to avoid test-set information leakage.
+    """
 
-        return self._FPCA
+    def __init__(self, n_components=2, n_points=64):
+        self.n_components = n_components
+        self.n_points = n_points
 
-    def fit_transform(self, X,y=None, *args, **kwargs):
+    def _matrix(self, X):
+        rows, index = _as_rows(X)
+        matrix = []
+        for row in rows:
+            a = np.asarray(row, dtype=float).ravel()
+            valid = np.isfinite(a)
+            if valid.sum() < 2:
+                raise ValueError("FPCA requires at least two finite samples per series")
+            xp = np.linspace(0.0, 1.0, len(a))[valid]
+            matrix.append(np.interp(np.linspace(0, 1, self.n_points), xp, a[valid]))
+        return np.asarray(matrix), index
 
-        def smooth(X):
-            SMOOTH = []
-            for i in X:
-                x = np.asarray(range(len(i)))
-                smoothed = lowess(x=x, y = i.values,f= self.fraction)
-                SMOOTH.append(smoothed)
-            return SMOOTH
+    def fit(self, X, y=None):
+        if self.n_points < 2 or self.n_components < 1:
+            raise ValueError("n_points must be >= 2 and n_components >= 1")
+        matrix, _ = self._matrix(X)
+        self.model_ = PCA(n_components=self.n_components).fit(matrix)
+        self.feature_names_out_ = np.asarray(
+            [f"fpca_{i}" for i in range(self.n_components)], dtype=object)
+        return self
 
-        multi_curve = []
-        for i in X:
-            if i.dtype == 'Series':
-                multi_curve.append(smooth(i))
-            else:
-                pass
-        self.FPCA = vertfPCA(np.asarray(multi_curve),*args,*kwargs)
+    def transform(self, X):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "model_")
+        matrix, index = self._matrix(X)
+        return pd.DataFrame(self.model_.transform(matrix), index=index,
+                            columns=self.feature_names_out_)
 
-        return self._FPCA
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_.copy()
