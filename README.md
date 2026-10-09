@@ -90,6 +90,28 @@ See [GitHub Packages instructions](docs/packages.md) for using your own script,
 authentication when a package is private, and the difference from the
 wheel and source packages on the Release page.
 
+## Direct scikit-learn cross-validation
+
+Because `SDataFrame` also has its own `fit()` method, scikit-learn
+treats the raw frame as an estimator instead of as indexable samples.
+Use `frame.as_sklearn()` with `cross_val_score` or `GridSearchCV`:
+
+```python
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import make_pipeline
+from sklearn.linear_model import LogisticRegression
+from MLSD import activeTrans
+
+estimator = make_pipeline(activeTrans(), LogisticRegression(max_iter=500))
+# X is a data-only view; activeTrans fits on each training fold.
+scores = cross_val_score(estimator, frame.as_sklearn(), y, cv=3)
+```
+
+For strictly chronological labels and irregular forward horizons,
+use `PurgedEventTimeSeriesSplit` rather than shuffling. See the
+[complete leakage-aware cross-validation guide](docs/cross-validation.md).
+The `frame` and `y` names above represent an existing frame and its labels.
+
 ## Time-series evaluation and gap
 
 When labels look ahead across future bars, a naïve shuffled split—or even an ordinary holdout without a sufficient gap—may leak information:
