@@ -79,3 +79,23 @@ def test_dataframe_basics_and_join():
     assert len(frame.columns) == 1
     with pytest.raises(AttributeError):
         _ = combined.not_a_column
+
+
+def test_sdata_split_rejects_same_length_but_misaligned_target_series():
+    frame = SData([[1, 2], [3, 4], [5, 6]], index=["a", "b", "c"])
+    labels = pd.Series([0, 1, 0], index=["c", "b", "a"])
+    with pytest.raises(ValueError, match="index"):
+        frame.split_train_test(labels, test_ratio=0.3)
+    with pytest.raises(ValueError, match="one label"):
+        frame.split_train_test(1, test_ratio=0.3)
+
+
+def test_resampling_failure_does_not_partially_mutate_other_rows():
+    time = pd.date_range("2026-01-01", periods=4, freq="h")
+    good = pd.Series([1, 2, 3, 4], index=time)
+    bad = pd.Series([5, 6, 7, 8])
+    data = SData([good, bad])
+    with pytest.raises(TypeError, match="DatetimeIndex"):
+        data.resample("2h")
+    assert data.values[0].equals(good)
+    assert data.values[1].equals(bad)
