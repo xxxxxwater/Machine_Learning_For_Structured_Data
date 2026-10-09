@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (development after v0.2.0)
+## 0.2.1 — 2026-10-09
 
 - Added explicit `SDataFrame.as_sklearn()` data-only views for scikit-learn
   cross-validation, row/column selection, and stable feature names.
@@ -11,7 +11,7 @@
 - Made per-observation resampling atomic on failures.
 - Added comprehensive CV, overlap, and copy-isolation regression tests.
 - Extended CI with optional B-spline/LOWESS tests and Ruff correctness lint.
-- Preserved the published v0.2.0 Release tag and GHCR image.
+- Preserved the existing v0.2.0 Release tag and GHCR v0.2.0 image.\n- Published a distinct v0.2.1 wheel/sdist and GHCR versioned image; `latest` now tracks v0.2.1.
 
 ## 0.2.0 — 2026-10-09
 
