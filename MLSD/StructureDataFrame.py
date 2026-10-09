@@ -34,6 +34,52 @@ class _FrameILoc:
         return self.frame.take(key, axis=0)
 
 
+class _SamplesILoc:
+    def __init__(self, samples):
+        self.samples = samples
+
+    def __getitem__(self, positions):
+        selected = self.samples.frame.iloc[positions]
+        if isinstance(selected, SDataFrame):
+            return FrameSamples(selected)
+        return selected
+
+
+class FrameSamples:
+    """Indexable data-only view compatible with sklearn cross-validation.
+
+    SDataFrame itself implements fit(), so sklearn correctly treats it as an
+    estimator rather than as indexable X. This wrapper deliberately does
+    *not* expose fit() and preserves independent copies of selected rows.
+    """
+
+    def __init__(self, frame):
+        if not isinstance(frame, SDataFrame):
+            raise TypeError("FrameSamples requires an SDataFrame")
+        self.frame = frame
+
+    def __len__(self):
+        return len(self.frame)
+
+    @property
+    def shape(self):
+        return self.frame.shape
+
+    @property
+    def index(self):
+        return self.frame.index
+
+    @property
+    def iloc(self):
+        return _SamplesILoc(self)
+
+    def take(self, indices, axis=0):
+        return FrameSamples(self.frame.take(indices, axis=axis))
+
+    def __repr__(self):
+        return f"FrameSamples(shape={self.shape!r})"
+
+
 class SDataFrame:
     """Combine typed SData columns into an aligned scikit-learn feature matrix."""
 
@@ -74,6 +120,10 @@ class SDataFrame:
     @property
     def iloc(self):
         return _FrameILoc(self)
+
+    def as_sklearn(self):
+        """Provide indexable samples for sklearn cross_val_score/GridSearchCV."""
+        return FrameSamples(self)
 
     def take(self, indices, axis=0):
         """Return independent selected rows (axis=0) or columns (axis=1).
