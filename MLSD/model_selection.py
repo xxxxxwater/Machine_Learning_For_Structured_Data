@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import BaseCrossValidator
 
-from .StructureData import SData
 from .StructureDataFrame import SDataFrame
 
 
