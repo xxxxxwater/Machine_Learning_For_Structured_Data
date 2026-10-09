@@ -1,65 +1,52 @@
-from sklearn.base import TransformerMixin
+"""Backward-compatible scikit-learn wrapper for structured data transforms."""
+from copy import deepcopy
+
+from sklearn.base import BaseEstimator, TransformerMixin, clone
+from sklearn.utils.validation import check_is_fitted
+
+from ..StructureDataFrame import SDataFrame
 
 
-class activeTrans(TransformerMixin):
-    def __init__(self,
-                 ifSData=False,
-                 Trans_in=True,
-                 Multi_col=False,
-                 New_Trans=None,
-                 Reset_default=False):
+class activeTrans(BaseEstimator, TransformerMixin):
+    """Use independent fitted estimators for SData or an entire SDataFrame."""
 
+    def __init__(self, ifSData=False, Trans_in=True, Multi_col=False,
+                 New_Trans=None, Reset_default=False):
+        self.ifSData = ifSData
         self.Trans_in = Trans_in
         self.Multi_col = Multi_col
         self.New_Trans = New_Trans
         self.Reset_default = Reset_default
-        self.ifSData = ifSData
 
     def fit(self, X, y=None):
+        if self.ifSData:
+            source = (X.transformer if self.New_Trans is None else self.New_Trans)
+            if source is None:
+                raise ValueError("SData has no transformer")
+            try:
+                self.transformer_ = clone(source)
+            except TypeError:
+                self.transformer_ = deepcopy(source)
+            self.transformer_.fit(X, y)
+        else:
+            if not isinstance(X, SDataFrame):
+                raise TypeError("activeTrans(ifSData=False) requires SDataFrame")
+            self.frame_ = deepcopy(X)
+            if self.New_Trans is not None:
+                self.frame_.transformers = [deepcopy(self.New_Trans)
+                                            for _ in self.frame_.data]
+            self.frame_.fit(y=y)
+        return self
 
-        if self.New_Trans != None:
-            X.transformer = self.New_Trans
+    def transform(self, X):
+        if self.ifSData:
+            check_is_fitted(self, "transformer_")
+            return self.transformer_.transform(X)
+        check_is_fitted(self, "frame_")
+        return self.frame_.transform(X)
 
-        if self.ifSData == True:
-            trans = X.transformer
-            trans.fit(X)
-            self.trans = trans
-
-        elif self.ifSData == False:
-            self.trans = []
-            for i in X.data:
-                self.trans.append(i.transformer.fit(i))
-
-    def transform(self, X, y=None):
-
-        if self.New_Trans != None:
-            X.transformer = self.New_Trans
-
-        if self.ifSData == True:
-
-            return self.trans.transform(X)
-
-        elif self.ifSData == False:
-
-            features = self.trans[0].transform(X.data[0])
-            for i in range(2, len(X.data)):
-                features.join(self.trans[i].transform(X.data[i]))
-            return features
-
-    def fit_transform(self, X, y=None):
-        
-        if self.New_Trans != None:
-            X.transformer = self.New_Trans
-
-        if self.ifSData == True:
-            self.trans = X.transformer
-            return self.trans.fit_transform(X)
-
-        elif self.ifSData == False:
-            self.trans = []
-            for i in X.data:
-                self.trans.append(i.transformer)
-            features = self.trans[0].fit_transform(X.data[0])
-            for i in range(2, len(X.data)):
-                features.join(self.trans[i].fit_transform(X.data[i]))
-            return features
+    def get_feature_names_out(self, input_features=None):
+        if self.ifSData:
+            check_is_fitted(self, "transformer_")
+            return self.transformer_.get_feature_names_out(input_features)
+        raise AttributeError("Feature names are available from transform(X).columns")
