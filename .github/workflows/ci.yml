@@ -37,3 +37,20 @@ jobs:
         run: |
           python -m pip install build
           python -m build --sdist --wheel
+
+  optional-backends:
+    name: Optional backends / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install optional scientific libraries
+        run: python -m pip install -e '.[dev,spline,lowess]'
+      - name: Exercise real B-spline and LOWESS implementations
+        run: python -m pytest -q tests/test_advanced.py
+      - name: Ruff correctness lint
+        run: python -m ruff check MLSD tests examples
