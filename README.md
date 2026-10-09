@@ -74,6 +74,22 @@ python examples/train_mixed.py
 
 **No leakage:** Always split *before* fitting the text vocabulary, dimensionality reducers, imputer or model. `frame.extracted_features` exists for convenience, but *fits on the entire frame* and should not be used on pre-split research/evaluation datasets.
 
+## GitHub Packages: MLSD container
+
+A ready-to-run **Linux AMD64** Python image is available through GitHub
+Container Registry, built and smoke-tested from the immutable `v0.2.0`
+release tag.
+
+```bash
+docker pull ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.0
+docker run --rm ghcr.io/xxxxxwater/mlsd-structured-data:v0.2.0
+```
+
+The image defaults to the synthetic mixed-data training demonstration.
+See [GitHub Packages instructions](docs/packages.md) for using your own script,
+authentication when a package is private, and the difference from the
+wheel and source packages on the Release page.
+
 ## Time-series evaluation and gap
 
 When labels look ahead across future bars, a naïve shuffled split—or even an ordinary holdout without a sufficient gap—may leak information:
