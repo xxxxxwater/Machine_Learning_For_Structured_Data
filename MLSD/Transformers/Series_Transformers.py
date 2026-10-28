@@ -111,7 +111,8 @@ class tsfreshSeries(BaseEstimator, TransformerMixin):
     def transform(self, X):
         from sklearn.utils.validation import check_is_fitted
         check_is_fitted(self, "feature_names_out_")
-        return self._extract(X).reindex(columns=self.feature_names_out_)
+        features = self._extract(X).replace([np.inf, -np.inf], np.nan)
+        return features.reindex(columns=self.feature_names_out_)
 
     def get_feature_names_out(self, input_features=None):
         from sklearn.utils.validation import check_is_fitted
@@ -148,7 +149,7 @@ class BsplineSeries(BaseEstimator, TransformerMixin):
                 raise ValueError("B-spline series must be finite and at least knots long")
             t = np.linspace(0, 1, a.size)
             basis = np.asarray(dmatrix(
-                "bs(t, df=df, degree=degree, include_intercept=False) - 1",
+                "bs(t, df=df, degree=degree, include_intercept=True) - 1",
                 {"t": t, "df": self.knots, "degree": self.degrees}))
             result.append(np.linalg.lstsq(basis, a, rcond=None)[0])
         return pd.DataFrame(result, index=index, columns=self.feature_names_out_)

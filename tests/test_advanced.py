@@ -48,6 +48,17 @@ def test_optional_bspline_backend():
     assert np.isfinite(features.to_numpy()).all()
 
 
+def test_bspline_reconstructs_series_with_nonzero_start():
+    pytest.importorskip("patsy")
+    from patsy import dmatrix
+    series = np.full(30, 5.0)
+    coefs = BsplineSeries(degrees=3, knots=6).fit_transform(SData([series]))
+    basis = np.asarray(dmatrix(
+        "bs(t, df=6, degree=3, include_intercept=True) - 1",
+        {"t": np.linspace(0, 1, 30)}))
+    np.testing.assert_allclose(basis @ coefs.to_numpy()[0], series, atol=1e-8)
+
+
 def test_optional_lowess_backend():
     pytest.importorskip("statsmodels")
     data = SData([np.sin(np.linspace(0, 5, 20)),

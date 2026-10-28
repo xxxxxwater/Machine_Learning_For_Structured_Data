@@ -23,7 +23,10 @@ def main():
         direction = int(i % 3 != 0)
         signal = rng.normal(loc=direction * .6, size=12)
         signals.append(signal)
-        news.append("optimistic outlook" if direction else "cautious outlook")
+        # Noisy headline: agreeing with the label only 70% of the time keeps the
+        # text column from leaking the target.
+        tone = direction if rng.random() >= .3 else 1 - direction
+        news.append("optimistic outlook" if tone else "cautious outlook")
         labels.append(direction)
 
     frame = SDataFrame([
